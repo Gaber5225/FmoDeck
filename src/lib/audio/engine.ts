@@ -55,6 +55,7 @@ export interface AudioEngineEvents {
 
 export class AudioEngine {
   private ws: WebSocket | null = null
+  private connectTimer: ReturnType<typeof setTimeout> | null = null
   private ctx: AudioContext | null = null
   private gain: GainNode | null = null
   private chainHead: AudioNode | null = null
@@ -94,6 +95,8 @@ export class AudioEngine {
   stop(): void {
     this.shouldReconnect = false
     this.setStatus('closed')
+    if (this.connectTimer) clearTimeout(this.connectTimer)
+    this.connectTimer = null
     this.ws?.close()
     this.ws = null
     // 保留 AudioContext 以便下次快速恢复
@@ -257,13 +260,26 @@ export class AudioEngine {
     try {
       this.ws = new WebSocket(this.url)
       this.ws.binaryType = 'arraybuffer'
+      // mDNS 名字解析卡住时 WebSocket 停在 CONNECTING,不触发 error/close。
+      // 5s 超时后主动 close 触发 onclose → 重连,避免音频一直卡在 connecting。
+      const connectTimer = setTimeout(() => {
+        try {
+          this.ws?.close()
+        } catch {
+          /* 忽略 */
+        }
+      }, 5_000)
+      this.connectTimer = connectTimer
     } catch (err) {
       this.setStatus('error', err instanceof Error ? err : new Error(String(err)))
       this.scheduleReconnect()
       return
     }
 
-    this.ws.onopen = () => {
+    const ws = this.ws
+    ws.onopen = () => {
+      clearTimeout(this.connectTimer!)
+      this.connectTimer = null
       this.reconnectAttempts = 0
       this.setStatus('playing')
     }
@@ -275,11 +291,15 @@ export class AudioEngine {
       }
     }
 
-    this.ws.onerror = () => {
+    ws.onerror = () => {
+      clearTimeout(this.connectTimer!)
+      this.connectTimer = null
       // 具体错误由 onclose 统一处理（浏览器 onerror 没有可读细节）
     }
 
-    this.ws.onclose = () => {
+    ws.onclose = () => {
+      clearTimeout(this.connectTimer!)
+      this.connectTimer = null
       this.ws = null
       if (this.shouldReconnect) {
         this.scheduleReconnect()
