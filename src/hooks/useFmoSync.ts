@@ -1,10 +1,10 @@
 import { useEffect } from 'react'
 import { connectionStore } from '@/stores/connection'
 import { settingsStore, type FmoAddress } from '@/stores/settings'
-import { normalizeHost } from '@/lib/utils/url'
+import { buildWebSocketUrl } from '@/lib/utils/url'
 
 function buildUrl(protocol: 'ws' | 'wss', addr: FmoAddress): string {
-  return `${protocol}://${normalizeHost(addr.host)}/ws`
+  return buildWebSocketUrl(addr.host, '/ws', protocol)
 }
 
 export function useFmoSync(): void {
