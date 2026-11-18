@@ -63,6 +63,35 @@ describe('FmoApiClient · 连接', () => {
     client.disconnect()
     expect(client.isConnected).toBe(false)
   })
+
+  it('mDNS 卡在 CONNECTING 时建连超时并拒绝', async () => {
+    vi.useFakeTimers()
+    const client = new FmoApiClient('ws://fmo.local/ws', {
+      connectTimeoutMs: 1000,
+      reconnect: { initialDelayMs: 10, maxDelayMs: 10, maxAttempts: 0 }
+    })
+    const p = client.connect()
+    vi.advanceTimersByTime(1000)
+    await expect(p).rejects.toThrow(/timeout/i)
+    vi.useRealTimers()
+  })
+
+  it('建连超时后再次 connect() 会重新建连（不复用 rejected Promise）', async () => {
+    vi.useFakeTimers()
+    const client = new FmoApiClient('ws://fmo.local/ws', {
+      connectTimeoutMs: 1000,
+      reconnect: { initialDelayMs: 10, maxDelayMs: 10, maxAttempts: 0 }
+    })
+    const first = client.connect()
+    vi.advanceTimersByTime(1000)
+    await expect(first).rejects.toThrow(/timeout/i)
+
+    const second = client.connect()
+    expect(MockWebSocket.instances).toHaveLength(2)
+    MockWebSocket.instances[1]!.open()
+    await expect(second).resolves.toBeUndefined()
+    vi.useRealTimers()
+  })
 })
 
 describe('FmoApiClient · 请求（串行队列）', () => {
