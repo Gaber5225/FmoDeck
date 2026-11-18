@@ -35,11 +35,15 @@ export class FmoEventsClient {
   private readonly listeners = new Set<(ev: FmoEvent) => void>()
   private reconnectAttempts = 0
   private shouldReconnect = false
+  private readonly connectTimeoutMs: number
 
   constructor(
     private readonly url: string,
-    private readonly reconnectOpts: ReconnectOptions = DEFAULT_RECONNECT
-  ) {}
+    private readonly reconnectOpts: ReconnectOptions = DEFAULT_RECONNECT,
+    connectTimeoutMs = 5_000
+  ) {
+    this.connectTimeoutMs = connectTimeoutMs
+  }
 
   connect(): void {
     this.shouldReconnect = true
@@ -61,7 +65,18 @@ export class FmoEventsClient {
     const ws = new WebSocket(this.url)
     this.ws = ws
 
+    // mDNS 名字解析卡住时 WebSocket 会停在 CONNECTING，不触发 error/close。
+    // 超时后主动 close 触发 onclose → 进入指数退避重连。
+    const connectTimer = setTimeout(() => {
+      try {
+        ws.close()
+      } catch {
+        /* 忽略 */
+      }
+    }, this.connectTimeoutMs)
+
     ws.onopen = () => {
+      clearTimeout(connectTimer)
       this.reconnectAttempts = 0
     }
 
@@ -86,11 +101,13 @@ export class FmoEventsClient {
     }
 
     ws.onclose = () => {
+      clearTimeout(connectTimer)
       this.ws = null
       if (this.shouldReconnect) this.scheduleReconnect()
     }
 
     ws.onerror = () => {
+      clearTimeout(connectTimer)
       /* onclose 会自动触发 */
     }
   }
