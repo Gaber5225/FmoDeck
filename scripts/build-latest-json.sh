@@ -10,7 +10,9 @@ set -euo pipefail
 
 : "${APK_PATH:?missing APK_PATH}"
 : "${VERSION:?missing VERSION}"
-: "${UPDATE_BASE_URL:?missing UPDATE_BASE_URL}"
+# UPDATE_BASE_URL 在 fork/无 secrets 场景可能为空：降级为占位 URL，
+# 不阻断 APK 构建（latest.json 仅用于在线更新检查，不影响客户端安装）。
+UPDATE_BASE_URL="${UPDATE_BASE_URL:-https://example.invalid}"
 : "${CHANGELOG_BODY:=}"
 
 APK_NAME=$(basename "$APK_PATH")
