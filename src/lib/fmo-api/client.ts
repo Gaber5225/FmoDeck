@@ -8,6 +8,8 @@ export interface ReconnectOptions {
 
 export interface FmoClientOptions {
   requestTimeoutMs?: number
+  /** 建连超时；mDNS（fmo.local / fmo1.local）解析卡住时兜底，对齐 FmoLogs 的 5s 探测。 */
+  connectTimeoutMs?: number
   reconnect?: ReconnectOptions
 }
 
@@ -16,6 +18,8 @@ const DEFAULT_RECONNECT: ReconnectOptions = {
   maxDelayMs: 30_000,
   maxAttempts: 10
 }
+
+const DEFAULT_CONNECT_TIMEOUT_MS = 5_000
 
 /**
  * 服务器不规范返回的 response subType 别名映射。
@@ -49,6 +53,7 @@ export class FmoApiClient {
   private readonly queue: QueuedRequest[] = []
   private inFlight: InFlightRequest | null = null
   private readonly requestTimeoutMs: number
+  private readonly connectTimeoutMs: number
   private readonly reconnectOpts: ReconnectOptions
   private reconnectAttempts = 0
   private shouldReconnect = false
@@ -60,6 +65,7 @@ export class FmoApiClient {
     opts: FmoClientOptions = {}
   ) {
     this.requestTimeoutMs = opts.requestTimeoutMs ?? 10_000
+    this.connectTimeoutMs = opts.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS
     this.reconnectOpts = opts.reconnect ?? DEFAULT_RECONNECT
   }
 
@@ -70,24 +76,62 @@ export class FmoApiClient {
   connect(): Promise<void> {
     if (this.connectPromise) return this.connectPromise
     this.shouldReconnect = true
-    this.connectPromise = this.doConnect()
-    return this.connectPromise
+    // 失败后必须清空 connectPromise，否则后续 connect() 会一直拿到
+    // 那个 rejected Promise，再也不会重试（mDNS 偶发失败时尤其致命）。
+    const pending = this.doConnect().catch((err) => {
+      this.connectPromise = null
+      throw err
+    })
+    this.connectPromise = pending
+    return pending
   }
 
   private doConnect(): Promise<void> {
     return new Promise((resolve, reject) => {
+      // 一旦 open / error / timeout 中任一发生就锁定结果，避免重复 settle。
+      let settled = false
       const ws = new WebSocket(this.url)
       this.ws = ws
+
+      // 关键：mDNS 名字（fmo.local / fmo1.local）解析失败时，WebSocket 会
+      // 长时间停在 CONNECTING，既不 onopen 也不 onerror。没有超时就会假死，
+      // 表现就是"很多时候连不上"。5s 后主动 close 触发 onclose → 进入重连。
+      const connectTimer = setTimeout(() => {
+        if (settled) return
+        settled = true
+        try {
+          ws.close()
+        } catch {
+          /* 忽略：close 失败也会由下面的路径收尾 */
+        }
+        reject(new Error('WebSocket connection timeout'))
+      }, this.connectTimeoutMs)
+
       ws.onopen = () => {
+        clearTimeout(connectTimer)
+        if (settled) return
+        settled = true
         this.reconnectAttempts = 0
         resolve()
       }
       ws.onmessage = (ev) => this.handleMessage(ev)
       ws.onclose = () => {
+        clearTimeout(connectTimer)
+        if (!settled) {
+          settled = true
+          reject(new Error('WebSocket closed before open'))
+        }
+        this.ws = null
         this.failAllPending(new Error('WebSocket closed'))
         if (this.shouldReconnect) this.scheduleReconnect()
       }
-      ws.onerror = () => reject(new Error('WebSocket error'))
+      ws.onerror = () => {
+        clearTimeout(connectTimer)
+        if (!settled) {
+          settled = true
+          reject(new Error('WebSocket error'))
+        }
+      }
     })
   }
 
@@ -100,7 +144,9 @@ export class FmoApiClient {
     this.reconnectAttempts++
     setTimeout(() => {
       if (this.shouldReconnect) {
-        this.connectPromise = this.doConnect().catch(() => undefined) as Promise<void>
+        this.connectPromise = this.doConnect().catch(() => {
+          this.connectPromise = null
+        })
       }
     }, delay)
   }
