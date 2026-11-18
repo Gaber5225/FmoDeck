@@ -10,7 +10,7 @@ import './styles/globals.css'
 // Tauri 壳内不注册(自有协议,无意义且可能报错)。
 if (!isTauri() && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => undefined)
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => undefined)
   })
 }
 
