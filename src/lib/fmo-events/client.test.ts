@@ -107,6 +107,23 @@ describe('FmoEventsClient', () => {
     vi.useRealTimers()
   })
 
+  it('mDNS 卡在 CONNECTING 时超时并触发重连', () => {
+    vi.useFakeTimers()
+    const c = new FmoEventsClient(
+      'ws://fmo1.local/events',
+      { initialDelayMs: 100, maxDelayMs: 1000, maxAttempts: 3 },
+      1000
+    )
+    c.connect()
+    expect(MockWebSocket.instances).toHaveLength(1)
+    // 不调用 open()，模拟 mDNS 解析卡死；超时后应主动 close 并进入重连
+    vi.advanceTimersByTime(1000)
+    MockWebSocket.instances[0]!.close()
+    vi.advanceTimersByTime(100)
+    expect(MockWebSocket.instances).toHaveLength(2)
+    vi.useRealTimers()
+  })
+
   it('disconnect 后不重连', () => {
     vi.useFakeTimers()
     const c = new FmoEventsClient('ws://fake/events', {
