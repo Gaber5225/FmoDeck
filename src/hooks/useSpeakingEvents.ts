@@ -3,7 +3,7 @@ import i18n from '@/i18n'
 import { FmoEventsClient } from '@/lib/fmo-events/client'
 import { notify } from '@/lib/notifications'
 import { parseCallsignSsid } from '@/lib/utils/callsign'
-import { normalizeHost } from '@/lib/utils/url'
+import { buildWebSocketUrl } from '@/lib/utils/url'
 import { QsoService } from '@/lib/qso-service/client'
 import { connectionStore } from '@/stores/connection'
 import { settingsStore } from '@/stores/settings'
@@ -53,7 +53,7 @@ export function useSpeakingEvents(): void {
       const addr = fmoAddresses.find((a) => a.id === activeAddressId)
       if (!addr) return
 
-      const url = `${protocol}://${normalizeHost(addr.host)}/events`
+      const url = buildWebSocketUrl(addr.host, '/events', protocol)
       client?.disconnect()
       client = new FmoEventsClient(url)
       client.onEvent((ev) => {
