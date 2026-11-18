@@ -50,9 +50,29 @@ describe('useFmoSync', () => {
     expect(connectMock).toHaveBeenCalledWith('wss://fmo.local/ws')
   })
 
-  it('normalizeHost 自动去协议前缀和尾斜杠', () => {
+  it('地址自带 https 前缀时推断为 wss，并去除尾斜杠', () => {
     settingsStore.setState({
       fmoAddresses: [{ id: 'a', host: 'https://fmo.local/' }],
+      activeAddressId: 'a',
+      protocol: 'ws'
+    })
+    renderHook(() => useFmoSync())
+    expect(connectMock).toHaveBeenCalledWith('wss://fmo.local/ws')
+  })
+
+  it('fmo1.local 等 mDNS 别名按裸主机名拼 URL', () => {
+    settingsStore.setState({
+      fmoAddresses: [{ id: 'a', host: 'fmo1.local:8080' }],
+      activeAddressId: 'a',
+      protocol: 'ws'
+    })
+    renderHook(() => useFmoSync())
+    expect(connectMock).toHaveBeenCalledWith('ws://fmo1.local:8080/ws')
+  })
+
+  it('地址末尾已含 /ws 时不重复拼接', () => {
+    settingsStore.setState({
+      fmoAddresses: [{ id: 'a', host: 'fmo.local/ws' }],
       activeAddressId: 'a',
       protocol: 'ws'
     })
