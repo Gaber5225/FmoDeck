@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { AudioEngine } from '@/lib/audio/engine'
 import { parseCallsignSsid } from '@/lib/utils/callsign'
-import { normalizeHost } from '@/lib/utils/url'
+import { buildWebSocketUrl } from '@/lib/utils/url'
 import { audioStore } from '@/features/audio/store'
 import { engineRefStore } from '@/features/audio/engine-store'
 import { connectionStore } from '@/stores/connection'
@@ -84,7 +84,7 @@ export function useFmoAudio(): void {
 
       if (engineRef.current) return
 
-      const url = `${protocol}://${normalizeHost(addr.host)}/audio`
+      const url = buildWebSocketUrl(addr.host, '/audio', protocol)
       const engine = new AudioEngine(url, {
         onStatus: (s, err) => {
           audioStore.getState().setStatus(s, err?.message ?? null)
